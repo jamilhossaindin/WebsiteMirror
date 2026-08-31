@@ -1,0 +1,22 @@
+{
+  "name": "website-mirror",
+  "version": "1.0.0",
+  "description": "Complete website mirror — crawl every page, download all assets, rewrite all links, browse locally identical to original.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "axios": "^1.7.2",
+    "cheerio": "^1.0.0",
+    "express": "^4.19.2",
+    "ffmpeg-static": "^5.3.0",
+    "mime-types": "^2.1.35",
+    "puppeteer": "^24.0.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "uuid": "^11.0.0"
+  }
+}
