@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "name": "WebsiteMirror",
+  "name": "websitemirror",
   "builds": [
     {
       "src": "server.js",
