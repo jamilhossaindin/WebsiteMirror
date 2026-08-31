@@ -22,6 +22,7 @@ const mime = require('mime-types');
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const os = require('os');
+const archiver = require('archiver');
 const { exec } = require('child_process');
 
 const CrawlerCluster = require('./lib/crawler-cluster');
@@ -1168,56 +1169,47 @@ app.post('/api/open-folder', (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/download/:id
 // ─────────────────────────────────────────────────────────────────────────────
-app.get('/api/download/:id', (req, res) => {
+app.get('/api/download/:id', async (req, res) => {
   const id = req.params.id;
-  let zipPath = null;
-  let filename = 'mirror.zip';
+  const job = jobs[id] || Object.values(jobs).find((j) => j.id === id || j.safeDir === id);
+  const safeDir = job ? job.safeDir : id;
+  const domain = job ? job.domain : id.split('_')[0];
+  const filename = `${domain || 'website'}_complete_mirror.zip`;
 
-  if (jobs[id] && jobs[id].zipPath && fs.existsSync(jobs[id].zipPath)) {
-    zipPath = jobs[id].zipPath;
-    filename = `${jobs[id].domain}_complete_mirror.zip`;
-  } else {
-    const candidates = [
-      path.join(MIRRORS, `${id}.zip`),
-      path.join(MIRRORS, id, `${id}.zip`),
-      path.join(USER_EXPORT_DIR, `${id}.zip`),
-    ];
+  // 1. Search for existing pre-built ZIP archive
+  const possibleZipPaths = [
+    job && job.zipPath,
+    path.join(MIRRORS, `${safeDir}.zip`),
+    path.join(MIRRORS, `${id}.zip`),
+    path.join(MIRRORS, safeDir, `${safeDir}.zip`),
+    path.join(USER_EXPORT_DIR, `${safeDir}.zip`),
+    path.join(USER_EXPORT_DIR, `${id}.zip`),
+  ].filter(Boolean);
 
-    if (fs.existsSync(MIRRORS)) {
-      const files = fs.readdirSync(MIRRORS);
-      for (const f of files) {
-        if (f.endsWith('.zip') && (f.includes(id) || f.startsWith(id))) {
-          candidates.push(path.join(MIRRORS, f));
-        }
-      }
-    }
-
-    if (fs.existsSync(USER_EXPORT_DIR)) {
-      const files = fs.readdirSync(USER_EXPORT_DIR);
-      for (const f of files) {
-        if (f.endsWith('.zip') && (f.includes(id) || f.startsWith(id))) {
-          candidates.push(path.join(USER_EXPORT_DIR, f));
-        }
-      }
-    }
-
-    for (const c of candidates) {
-      if (fs.existsSync(c) && fs.statSync(c).isFile()) {
-        zipPath = c;
-        filename = path.basename(c);
-        break;
-      }
+  for (const zp of possibleZipPaths) {
+    if (fs.existsSync(zp) && fs.statSync(zp).isFile()) {
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return fs.createReadStream(zp).pipe(res);
     }
   }
 
-  if (!zipPath || !fs.existsSync(zipPath)) {
-    return res.status(404).send('ZIP archive not ready yet.');
+  // 2. If mirror directory exists, dynamically zip and stream directly!
+  const mirrorDir = path.join(MIRRORS, safeDir);
+  if (fs.existsSync(mirrorDir)) {
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    archive.on('error', (err) => {
+      console.error('ZIP streaming error:', err);
+      if (!res.headersSent) res.status(500).send('Error creating ZIP archive');
+    });
+    archive.pipe(res);
+    archive.directory(mirrorDir, false);
+    return archive.finalize();
   }
 
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  const stream = fs.createReadStream(zipPath);
-  stream.pipe(res);
+  res.status(404).send('ZIP archive not ready yet. Please wait for the crawl to complete.');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
