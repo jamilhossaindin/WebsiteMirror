@@ -230,6 +230,20 @@ const EMBEDDED_HTML = `<!DOCTYPE html>
     .bar.indeterminate { width:35%; animation: indeterminate 1.6s ease-in-out infinite; }
     @keyframes indeterminate { 0%{margin-left:-35%} 100%{margin-left:100%} }
 
+    .completion-banner {
+      background: rgba(52,211,153,0.12); border: 1.5px solid rgba(52,211,153,0.35); border-radius: var(--r);
+      padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      margin-bottom: 16px; animation: slideIn .3s ease; flex-wrap: wrap;
+    }
+    .cb-left { display: flex; align-items: center; gap: 14px; }
+    .cb-icon {
+      width: 42px; height: 42px; background: var(--grad-green); border-radius: 12px;
+      display: flex; align-items: center; justify-content: center; color: white; flex-shrink: 0;
+      box-shadow: 0 4px 14px rgba(52,211,153,0.4);
+    }
+    .cb-title { font-size: 16px; font-weight: 700; color: #fff; }
+    .cb-sub { font-size: 13px; color: #a2a2bc; margin-top: 3px; }
+
     .terminal {
       background: #020208; border: 1px solid rgba(255,255,255,0.06); border-radius: var(--r);
       padding: 14px 16px; height: 210px; overflow-y: auto; font-family: var(--mono);
@@ -545,6 +559,26 @@ const EMBEDDED_HTML = `<!DOCTYPE html>
     <!-- Progress bar -->
     <div class="bar-track"><div class="bar indeterminate" id="progress-bar"></div></div>
 
+    <!-- Completion Download Banner -->
+    <div class="completion-banner" id="completion-banner" hidden>
+      <div class="cb-left">
+        <div class="cb-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div>
+          <div class="cb-title">Mirror Complete & ZIP Created!</div>
+          <div class="cb-sub" id="cb-sub">Your complete website ZIP package download started automatically.</div>
+        </div>
+      </div>
+      <a class="btn-download" id="auto-download-btn" href="#">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 3a1 1 0 0 1 1 1v8.585l2.293-2.292a1 1 0 1 1 1.414 1.414l-4 4a1 1 0 0 1-1.414 0l-4-4a1 1 0 1 1 1.414-1.414L11 12.585V4a1 1 0 0 1 1-1Z"/>
+          <path d="M4 15a1 1 0 0 1 1 1v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2a1 1 0 1 1 2 0v2a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-2a1 1 0 0 1 1-1Z"/>
+        </svg>
+        Download ZIP Again
+      </a>
+    </div>
+
     <!-- Terminal log -->
     <div class="terminal" id="terminal">
       <div class="log-info">▶ Ready to mirror…</div>
@@ -786,6 +820,8 @@ async function startMirror() {
   statusUrl.textContent   = rawUrl;
 
   progressPanel.hidden = false;
+  const cb = document.getElementById('completion-banner');
+  if (cb) cb.hidden = true;
   previewStudio.hidden = true;
   mirrorBtn.disabled   = true;
   mirrorBtnTxt.textContent = 'Mirroring in progress…';
@@ -839,10 +875,28 @@ async function startMirror() {
         pulseDot.className     = 'pulse-dot done';
         statusTitle.textContent = '100% Mirror Complete & Ready!';
 
+        const downloadUrl = `/api/download/${data.safeDir || safeDir}`;
+        const completionBanner = document.getElementById('completion-banner');
+        const autoDownloadBtn = document.getElementById('auto-download-btn');
+        if (completionBanner) completionBanner.hidden = false;
+        if (autoDownloadBtn) autoDownloadBtn.href = downloadUrl;
+
+        appendLog('📦 ZIP Archive generated. Triggering automatic download…', 'success');
+
+        // Automatically trigger ZIP download
+        try {
+          const dl = document.createElement('a');
+          dl.href = downloadUrl;
+          dl.setAttribute('download', `${data.domain || domain}_complete_mirror.zip`);
+          document.body.appendChild(dl);
+          dl.click();
+          setTimeout(() => document.body.removeChild(dl), 1000);
+        } catch (e) {}
+
         currentSafeDir = data.safeDir || safeDir;
         currentOriginalUrl = data.originalUrl || rawUrl;
         previewDomainText.textContent = \`\${data.domain || domain} (\${pages} pages · \${assets} assets)\`;
-        studioDownloadBtn.href = \`/api/download/\${data.safeDir || safeDir}\`;
+        studioDownloadBtn.href = downloadUrl;
 
         pageSelect.innerHTML = '';
         const homeOpt = document.createElement('option');
