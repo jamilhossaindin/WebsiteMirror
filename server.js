@@ -844,22 +844,27 @@ async function startMirror() {
         studioDownloadBtn.href = \`/api/download/\${data.safeDir || safeDir}\`;
 
         pageSelect.innerHTML = '';
+        const homeOpt = document.createElement('option');
+        homeOpt.value = '/';
+        homeOpt.textContent = '/ (Homepage) ✓';
+        pageSelect.appendChild(homeOpt);
+
         if (data.pagesList && data.pagesList.length) {
           data.pagesList.forEach(p => {
             try {
               const u = new URL(p.url);
-              const opt = document.createElement('option');
               const pathDisplay = (u.pathname || '/') + (u.search || '');
-              opt.value = pathDisplay;
-              opt.textContent = \`\${pathDisplay} (\${p.status === 'ok' ? '✓' : 'x'})\`;
-              pageSelect.appendChild(opt);
+              if (pathDisplay !== '/' && pathDisplay !== '') {
+                const opt = document.createElement('option');
+                opt.value = pathDisplay;
+                opt.textContent = \`\${pathDisplay} (\${p.status === 'ok' ? '✓' : 'x'})\`;
+                pageSelect.appendChild(opt);
+              }
             } catch {}
           });
-        } else {
-          pageSelect.innerHTML = \`<option value="/">/ (Homepage)</option>\`;
         }
-
-        updatePreviewUrl(pageSelect.value || '/');
+        pageSelect.value = '/';
+        updatePreviewUrl('/');
         previewStudio.hidden = false;
         previewStudio.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } else {
@@ -926,13 +931,18 @@ app.get('/index.html', (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Dynamic Mirror Server with Transparent Fallback & On-Demand Proxy
 // ─────────────────────────────────────────────────────────────────────────────
-app.use('/mirror', async (req, res, next) => {
-  const parts = req.path.replace(/^\//, '').split('/');
-  const safeDir = parts[0];
-  if (!safeDir) return next();
+app.use('/mirror', async (req, res) => {
+  const cleanReqPath = req.path.replace(/^\//, '');
+  const slashIdx = cleanReqPath.indexOf('/');
+  const safeDir = slashIdx !== -1 ? cleanReqPath.slice(0, slashIdx) : cleanReqPath;
+  const rawSub = slashIdx !== -1 ? cleanReqPath.slice(slashIdx + 1) : '';
+  const subPath = rawSub.replace(/^\/+|\/+$/g, '');
+
+  if (!safeDir) {
+    return res.status(404).send('Invalid mirror path');
+  }
 
   const mirrorDir = path.join(MIRRORS, safeDir);
-  if (!fs.existsSync(mirrorDir)) return next();
 
   const manifestPath = path.join(mirrorDir, '_manifest.json');
   let manifest = { origin: '', assetMap: {} };
@@ -942,18 +952,20 @@ app.use('/mirror', async (req, res, next) => {
     } catch {}
   }
 
-  const subPath = parts.slice(1).join('/');
   const ext = path.extname(subPath).toLowerCase();
   const isStaticFile = !!ext && !['.html', '.htm'].includes(ext);
 
-  const candidates = [
-    path.join(mirrorDir, subPath),
-    path.join(mirrorDir, '_assets', subPath),
-    path.join(mirrorDir, '_assets', path.basename(subPath)),
-    path.join(mirrorDir, subPath, 'index.html'),
-    path.join(mirrorDir, subPath + '.html'),
-    path.join(mirrorDir, subPath + '/index.html'),
-  ];
+  // Check all candidate file locations
+  const candidates = [];
+  if (subPath) {
+    candidates.push(path.join(mirrorDir, subPath));
+    candidates.push(path.join(mirrorDir, subPath, 'index.html'));
+    candidates.push(path.join(mirrorDir, `${subPath}.html`));
+    candidates.push(path.join(mirrorDir, '_assets', subPath));
+    candidates.push(path.join(mirrorDir, '_assets', path.basename(subPath)));
+  } else {
+    candidates.push(path.join(mirrorDir, 'index.html'));
+  }
 
   for (const c of candidates) {
     if (fs.existsSync(c) && fs.statSync(c).isFile()) {
@@ -1015,15 +1027,18 @@ app.use('/mirror', async (req, res, next) => {
         if (resp.status < 400 && resp.data) {
           const ct = resp.headers['content-type'] || mime.lookup(ext) || 'application/octet-stream';
           res.setHeader('Content-Type', ct);
-          const cachedFile = path.join(mirrorDir, '_assets', path.basename(subPath));
-          fs.writeFileSync(cachedFile, Buffer.from(resp.data));
+          try {
+            const cachedFile = path.join(mirrorDir, '_assets', path.basename(subPath));
+            fs.mkdirSync(path.dirname(cachedFile), { recursive: true });
+            fs.writeFileSync(cachedFile, Buffer.from(resp.data));
+          } catch {}
           return res.send(Buffer.from(resp.data));
         }
       } catch {}
     }
   }
 
-  // If a script or stylesheet wasn't found, do not return index.html (which breaks strict MIME type checking)
+  // If a script or stylesheet wasn't found, do not return index.html
   if (isStaticFile) {
     if (ext === '.js' || ext === '.mjs') {
       res.setHeader('Content-Type', 'application/javascript');
@@ -1034,10 +1049,17 @@ app.use('/mirror', async (req, res, next) => {
 
   const rootIndex = path.join(mirrorDir, 'index.html');
   if (fs.existsSync(rootIndex)) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
     return res.sendFile(rootIndex);
   }
 
-  next();
+  return res.status(404).send(`<!DOCTYPE html>
+<html><body style="font-family:sans-serif;background:#0b0b14;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;">
+<div style="text-align:center;max-width:500px;padding:20px;">
+  <h2 style="margin-bottom:8px;">Page Preview</h2>
+  <p style="color:#a2a2bc;font-size:14px;line-height:1.5;">Select <b>/ (Homepage)</b> from the page selector dropdown above to view the cloned homepage, or click Download Multi-Page ZIP.</p>
+</div>
+</body></html>`);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
