@@ -4,11 +4,17 @@
  */
 
 const path = require('path');
-module.paths.push(
-  path.join(__dirname, 'node_modules'),
-  path.join(__dirname, 'website-mirror', 'node_modules'),
-  path.join(__dirname, '..', 'node_modules')
-);
+const isVercel = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+
+if (!isVercel) {
+  try {
+    module.paths.push(
+      path.join(__dirname, 'node_modules'),
+      path.join(__dirname, 'website-mirror', 'node_modules'),
+      path.join(__dirname, '..', 'node_modules')
+    );
+  } catch {}
+}
 
 const express = require('express');
 const axios = require('axios');
@@ -21,12 +27,22 @@ const { exec } = require('child_process');
 const CrawlerCluster = require('./lib/crawler-cluster');
 
 const app = express();
-const PORT = 4000;
-const MIRRORS = path.join(__dirname, 'mirrors');
-if (!fs.existsSync(MIRRORS)) fs.mkdirSync(MIRRORS, { recursive: true });
+const PORT = process.env.PORT || 4000;
+const MIRRORS = isVercel ? path.join(os.tmpdir(), 'mirrors') : path.join(__dirname, 'mirrors');
+try {
+  if (!fs.existsSync(MIRRORS)) fs.mkdirSync(MIRRORS, { recursive: true });
+} catch (e) {
+  console.warn('Could not create mirrors directory:', e.message);
+}
 
-const USER_EXPORT_DIR = path.join(os.homedir(), 'Downloads', 'Compressed', 'Copy Website');
-if (!fs.existsSync(USER_EXPORT_DIR)) fs.mkdirSync(USER_EXPORT_DIR, { recursive: true });
+const USER_EXPORT_DIR = isVercel
+  ? path.join(os.tmpdir(), 'exports')
+  : path.join(os.homedir(), 'Downloads', 'Compressed', 'Copy Website');
+try {
+  if (!fs.existsSync(USER_EXPORT_DIR)) fs.mkdirSync(USER_EXPORT_DIR, { recursive: true });
+} catch (e) {
+  console.warn('Could not create export directory:', e.message);
+}
 
 const jobs = {};
 
